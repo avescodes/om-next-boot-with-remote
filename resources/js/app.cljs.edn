@@ -1,0 +1,3 @@
+{:require  [investor-lookup-repro.app]
+ :init-fns [investor-lookup-repro.app/init]
+ :compiler-options {:asset-path "js/app.out"}}
