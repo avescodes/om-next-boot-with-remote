@@ -5,9 +5,7 @@
             [cognitect.transit :as transit]
             [sablono.core :refer [html]]))
 
-(def app-state (atom {:greeting "Hello world!"
-                      :search/results ""
-                      :search/query "Foo"}))
+
 
 (defui App
   Object
@@ -15,32 +13,44 @@
     (let [{:keys [greeting]} (om/props this)]
       (dom/h1 nil greeting))))
 
+(defui LiveSearch
+  static om/IQuery
+  (query [_] '[:search/results])
+
+  Object
+  (render
+   [this]
+   (let [{:keys [:search/results]} (om/props this)]
+     (html [:div.search
+            [:p ":search/results"]
+            [:pre (pr-str results)]]))
+   ))
+
+;; Read & Mutate definitions
+
 (defmulti read om/dispatch)
 
 (defmethod read :search/results
   [{:keys [ast state] :as env}
    k
    params]
-  {:value {:search/results "Searching"}
+  {:value "Searching..."
    :remote true})
 
-(defui LiveSearch
-  static om/IQuery
-  (query [_] '[])
+(defmulti mutate om/dispatch)
 
-  Object
-  (render
-   [this]
-
-   ))
+(defmethod mutate 'perform-query
+  [env k params]
+  {:action #(println "In 'perform-query action")
+   :value {}})
 
 ;; Remote setup and app initialization
 
-(defn- send [{:query remote} cb]
+(defn- send [{query :remote} cb]
   (console.log "sending query...")
   (let [xhr                     (new js/XMLHttpRequest)
         request-body            (transit/write (transit/writer :json) query)]
-    (.open xhr "POST" "/")
+    (.open xhr "POST" "/om")
     (.setRequestHeader xhr "Content-Type" "application/transit+json")
     (.setRequestHeader xhr "Accept" "application/transit+json")
     (.addEventListener
@@ -55,16 +65,25 @@
                            ". Please screenshot and contact an engineer."))))))
     (.send xhr request-body)))
 
+(defn logging-merge [reconciler state novelty query]
+  (console.log "Current state" state)
+  (console.log "Received Novelty" novelty)
+  (om/default-merge reconciler state novelty query))
+
 (def reconciler
   (om/reconciler
-    {:state app-state
-     :send   send
+    {:state {:greeting "Hello world!"
+             :search/results ""
+             :search/query "Foo"}
+     :send send
+     :merge logging-merge
      :parser (om/parser {:read read
-                         :mutate om/default-mutate
+                         :mutate mutate
                          :remotes [:remote]})}))
+
 (defn init []
   (om/add-root! reconciler
-                App
+                LiveSearch
                 (gdom/getElement "app")))
 
 
