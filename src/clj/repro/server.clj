@@ -16,7 +16,7 @@
 
 (defn fake-om-query [query]
   (println "request body / %s" query)
-  {:value {:search/result "foo"}})
+  {:search/results "foo"})
 
 (defn- content-type [cnt ctype]
   (let [c (get {:html    "text/html; charset=UTF-8"
