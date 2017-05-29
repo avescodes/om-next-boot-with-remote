@@ -1,5 +1,6 @@
 (ns repro.server
-  (:require [cognitect.transit :as transit]
+  (:require [clojure.string :as str]
+            [cognitect.transit :as transit]
             [ring.middleware.resource :refer [wrap-resource]]
             [ring.util.http-response :refer [ok header resource-response] :as resp]
             [bidi.ring :refer [make-handler]]
@@ -14,9 +15,19 @@
     (transit/write (transit/writer out-stream :json) clj-obj)
     (.toString out-stream)))
 
-(defn fake-om-query [query]
-  (println "request body / %s" query)
-  {:search/results "foo"})
+(def search-list #{"fooson" "barton" "bazzle"})
+
+(defn search-for [query]
+  (if (not-empty query)
+    (some #(when (str/starts-with? % query) %) search-list)
+    ""))
+
+(defn fake-om-query [om-query]
+  (println "Received Query <--" om-query)
+  (let [[attr {:keys [query]}] (first om-query)
+        result {:search/results (search-for query)}]
+    (println "Sending result -->" result)
+    result))
 
 (defn- content-type [cnt ctype]
   (let [c (get {:html    "text/html; charset=UTF-8"
