@@ -13,13 +13,6 @@
                                :search/query
                                :search/results])))
 
-;; TODO: Does not work
-(defn clear-search [reconciler _]
-  (console.log "clear")
-  (om/transact! reconciler `[(repro.app/clear)
-                             :search/query
-                             :search/results]))
-
 (defui LiveSearch
   static om/IQuery
   (query [_] '[:search/results :search/query])
@@ -34,8 +27,6 @@
                      :on-change (partial search-on-change this)
                      :placeholder "Search"
                      :value query}]
-            [:button {:on-click (partial clear-search this)}
-             "Clear"]
             [:hr]
             [:p ":search/query"]
             [:pre (pr-str query)]
@@ -46,6 +37,13 @@
 
 (defmulti read om/dispatch)
 
+;; Default read to getting the value from the state or an empty string
+(defmethod read :default
+  [{:keys [state] :as env}
+   k
+   params]
+  (get state k ""))
+
 (defn- bounce? [query]
   (or (empty? query)
       (<= (count query) 2)))
@@ -55,26 +53,13 @@
    k
    params]
   (let [{:keys [:search/query :search/results]} @state]
-    (if (not-empty results)
-      {:value results}                          ;; # - When result is present, display it.
-      (if-not (bounce? query)                   ;; # - Otherwise debounce query, fetching from remote
-        {:value "Searching..."
-         :remote (assoc ast :params {:query query})} ;; # - The Magic
-        {:value (get @state k "")}))))
-
-;; Default read to getting the value from the state or an empty string
-(defmethod read :default
-  [{:keys [state] :as env}
-   k
-   params]
-  (get state k ""))
+    (if-not (bounce? query)                                   ;; # - Otherwise debounce query, fetching from remote
+      {:value (if (not-empty results) results "Searching...") ;; # - Return current results or search placeholder
+       :remote (assoc ast :params {:query query})}            ;; # - The Magic, add our query to the remote ast
+      {:value (get @state k "")})))
 
 (defmulti mutate om/dispatch)
 
-(defmethod mutate 'repro.app/clear
-  [{:keys [env] :as state} k params]
-  {:action #(swap! state assoc :search/results ""
-                               :search/query "")})
 (defmethod mutate 'repro.app/perform-query
   [{:keys [state] :as env}
    k
