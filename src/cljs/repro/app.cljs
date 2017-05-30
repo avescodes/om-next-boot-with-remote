@@ -6,16 +6,23 @@
             [cognitect.transit :as transit]
             [sablono.core :refer [html]]))
 
+;; First things first is the on-change handler. Here, we submit two events to transact:
+;;
+;;  1. A perform-query mutation (incl. the event value)
+;;  2. A :search/results read (which will cause a remote read)
+;;
+;; The latter force a remote read for :search/results (defined below in `read`)
 (defn search-on-change [reconciler event]
   (let [query (.. event -target -value)]
-    (console.log "on-change" query)
     (om/transact! reconciler `[(repro.app/perform-query ~{:query query})
-                               :search/query
                                :search/results])))
 
+;; A simple component that displays search query and results
+;; as well as implementing live search
 (defui LiveSearch
   static om/IQuery
-  (query [_] '[:search/results :search/query])
+  (query [_] [:search/query
+              :search/results])
 
   Object
   (render
@@ -33,44 +40,34 @@
             [:p ":search/results"]
             [:pre (pr-str results)]]))))
 
-;; Read & Mutate definitions
+
+;; ## Read & Mutate definitions
 
 (defmulti read om/dispatch)
 
-;; Default read to getting the value from the state or an empty string
 (defmethod read :default
-  [{:keys [state] :as env}
-   k
-   params]
-  (get state k ""))
+  [{:keys [state] :as _env} k _params]
+  {:value (get @state k "")})
 
 (defn- bounce? [query]
   (or (empty? query)
       (<= (count query) 2)))
 
-(defmethod read :search/results
-  [{:keys [ast state] :as env}
-   k
-   params]
-  (let [{:keys [:search/query :search/results]} @state]
-    (if-not (bounce? query)                                   ;; # - Otherwise debounce query, fetching from remote
-      {:value (if (not-empty results) results "Searching...") ;; # - Return current results or search placeholder
-       :remote (assoc ast :params {:query query})}            ;; # - The Magic, add our query to the remote ast
-      {:value (get @state k "")})))
+(defmethod read :search/results                               ;; #- `read :search/results` implements our remote search
+  [{:keys [ast state] :as env} k _params]
+  (let [{:keys [:search/query :search/results]} @state]       ;; # - Fetch the current query and results
+    (if-not (bounce? query)                                   ;; # - Check for a debouncable query
+      {:value (if (not-empty results) results "Searching...") ;; # -   If none, return current results or search placeholder
+       :remote (assoc ast :params {:query query})}            ;; # -            and return a modified ast for :remote
+      {:value (get @state k "")})))                           ;; # -   Otherwise, just return the current state
 
 (defmulti mutate om/dispatch)
 
-(defmethod mutate 'repro.app/perform-query
-  [{:keys [state] :as env}
-   k
-   params]
+(defmethod mutate 'repro.app/perform-query                    ;; # - The on-change mutation actually does very little
+  [{:keys [state] :as _env} _k params]
   (let [{:keys [query]} params]
-    (console.log "perform-query" query)
-    (if (not= query (get @state :search/query))  ;; #- Don't re-run query if it is identical to last query
-      ;; New query, assoc to state and invoke a search/results remote read
-      {:action #(swap! state assoc :search/query query)
-       :value {:keys [:search/results]}}         ;; # - Specify keys for refresh (sp. ask for :search/results read)
-      {:action identity})))
+    {:action #(swap! state assoc :search/query query)         ;; # - It updates the internal query state
+     :value {:keys [:search/query]}}))                        ;; # - and provides a hint for a :search/query refresh (works for query, not results?)
 
 
 ;; Remote setup and app initialization
@@ -102,9 +99,7 @@
   (om/reconciler
     {:state {:search/results ""
              :search/query ""}
-     :normalize false
      :send send
-     :merge om/default-merge
      :parser (om/parser {:read read
                          :mutate mutate
                          :remotes [:remote]})}))
